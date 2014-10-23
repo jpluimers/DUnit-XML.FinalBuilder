@@ -15,7 +15,7 @@
  * The Original Code is DUnit.
  *
  * The Initial Developers of the Original Code are Kent Beck, Erich Gamma,
- * and Juancarlo Aez.
+ * and Juancarlo Añez.
  * Portions created The Initial Developers are Copyright (C) 1999-2000.
  * Portions created by The DUnit Group are Copyright (C) 2000-2003.
  * All rights reserved.
@@ -23,7 +23,7 @@
  * Contributor(s):
  * Kent Beck <kentbeck@csi.com>
  * Erich Gamma <Erich_Gamma@oti.com>
- * Juanco Aez <juanco@users.sourceforge.net>
+ * Juanco Añez <juanco@users.sourceforge.net>
  * Chris Morris <chrismo@users.sourceforge.net>
  * Jeff Moore <JeffMoore@users.sourceforge.net>
  * Kris Golko <neuromancer@users.sourceforge.net>
@@ -35,36 +35,69 @@
  Contributor : Laurent Laffont <llaffont@altaiire.fr>
 }
 
+{$if RTLVersion >= 21.0}
+  {$define HasStopwatch} // Delphi 2010 and up has a cross platform TStopwatch.
+  // http://docs.embarcadero.com/products/rad_studio/delphiAndcpp2009/HelpUpdate2/EN/html/delphivclwin32/contents.html
+  // http://docwiki.embarcadero.com/VCL/2010/en/Diagnostics.TStopwatch
+{$ifend}
+
 unit FinalBuilder.XMLTestRunner;
 
 interface
 uses
   SysUtils,
   Classes,
+{$ifdef HasStopwatch}
+  Diagnostics,
+{$endif HasStopwatch}
   TestFramework;
 
 const
    DEFAULT_FILENAME = 'dunit-report.xml';
 
 type
+{$ifndef HasStopwatch}
+  TStopwatch = record // Windows dependent (because of high resolution timer) TStopwatch
+  strict private
+    class var FFrequency: Int64;
+    class var FIsHighResolution: Boolean;
+    class var TickFrequency: Double;
+    FElapsed: Int64;
+    FRunning: Boolean;
+    FStartTimeStamp: Int64;
+    function GetElapsedDateTimeTicks: Int64;
+    function GetElapsedMilliseconds: Int64;
+    function GetElapsedTicks: Int64;
+    class procedure InitStopwatchType; static;
+  public
+    class function GetTimeStamp: Int64; static;
+    class function StartNew: TStopwatch; static;
+    procedure Stop;
+    procedure Reset;
+    procedure Start;
+    property ElapsedTicks: Int64 read GetElapsedTicks;
+    property ElapsedMilliseconds: Int64 read GetElapsedMilliseconds;
+  end;
+{$endif HasStopwatch}
+
   TXMLTestListener = class(TInterfacedObject, ITestListener, ITestListenerX)
   private
-     FOutputFile : TFileStream;
-     FFileName : String;
+    FOutputFile : TFileStream;
+    FFileName : String;
 
   protected
-     startTime : Cardinal;
-     dtStartTime : TDateTime;
-     dtEndTime : TDateTime;
+    stopWatch : TStopWatch;
+    dtStartTime : TDateTime;
+    dtEndTime : TDateTime;
 
-     testStart : TDateTime;
-     FSuiteStack : TStringList;
-     FInfoList   : TStringList;
-     FWarningList : TStringList;
+    testStart : TDateTime;
+    FSuiteStack : TStringList;
+    FInfoList   : TStringList;
+    FWarningList : TStringList;
 
-     procedure writeReport(str: String);
+    procedure writeReport(str: String);
 
-     function GetCurrentSuiteName : string;
+    function GetCurrentSuiteName : string;
     function  PrintErrors(r: TTestResult): string; virtual;
     function  PrintFailures(r: TTestResult): string; virtual;
     function  PrintHeader(r: TTestResult): string; virtual;
@@ -93,12 +126,12 @@ type
     constructor Create; overload;
     constructor Create(outputFile : String); overload;
     destructor Destroy; override;
-    
+
     class function RunTest(suite: ITest; outputFile:String): TTestResult; overload;
     class function RunRegisteredTests(outputFile:String): TTestResult;
     class function text2sgml(text : String) : String;
     class function StringReplaceAll (text,byt,mot : string ) :string;
-    
+
     //:Report filename. If an empty string, then standard output is used (compile with -CC option)
     property FileName : String read FFileName write FFileName;
   end;
@@ -113,11 +146,99 @@ var
 
 implementation
 
-uses Forms, Windows;
+{$ifndef HasStopwatch}
+uses
+  Windows;
+
+const
+  TicksPerMillisecond = 10000;
+  TicksPerSecond = 1000 * Int64(TicksPerMillisecond);
+
+function TStopwatch.GetElapsedDateTimeTicks: Int64;
+begin
+  Result := ElapsedTicks;
+  if FIsHighResolution then
+    Result := Trunc(Result * TickFrequency);
+end;
+
+function TStopwatch.GetElapsedMilliseconds: Int64;
+begin
+  Result := GetElapsedDateTimeTicks div TicksPerMillisecond;
+end;
+
+function TStopwatch.GetElapsedTicks: Int64;
+begin
+  Result := FElapsed;
+  if FRunning then
+    Result := Result + GetTimeStamp - FStartTimeStamp;
+end;
+
+class function TStopwatch.GetTimeStamp: Int64;
+begin
+  if FIsHighResolution then
+    QueryPerformanceCounter(Result)
+  else
+    Result := GetTickCount * TicksPerMillisecond;
+end;
+
+class procedure TStopwatch.InitStopwatchType;
+begin
+  if FFrequency = 0 then
+  begin
+    if not QueryPerformanceFrequency(FFrequency) then
+    begin
+      FIsHighResolution := False;
+      FFrequency := TicksPerSecond;
+      TickFrequency := 1.0;
+    end else
+    begin
+      FIsHighResolution := True;
+      TickFrequency := 10000000.0 / FFrequency;
+    end;
+  end;
+end;
+
+procedure TStopwatch.Reset;
+begin
+  FElapsed := 0;
+  FRunning := False;
+  FStartTimeStamp := 0;
+end;
+
+procedure TStopwatch.Start;
+begin
+  if not FRunning then
+  begin
+    FStartTimeStamp := GetTimeStamp;
+    FRunning := True;
+  end;
+end;
+
+class function TStopwatch.StartNew: TStopwatch;
+begin
+  InitStopwatchType;
+  Result.Reset;
+  Result.Start;
+end;
+
+procedure TStopwatch.Stop;
+begin
+  if FRunning then
+  begin
+    FElapsed := FElapsed + GetTimeStamp - FStartTimeStamp;
+    FRunning := False;
+  end;
+end;
+{$endif HasStopwatch}
 
 const
    CRLF = #13#10;
    MAX_DEEP = 5;
+
+function ExeName: string;
+begin
+  Result := ParamStr(0);
+end;
 
 function IsValidXMLChar(wc: WideChar): Boolean;
 begin
@@ -278,8 +399,9 @@ var
   Preamble: TBytes;
 {$ENDIF}
 begin
-   startTime := GetTickCount;
+   stopWatch := TStopWatch.StartNew();
    dtStartTime := Now;
+   ForceDirectories(ExtractFilePath(FFileName));
    FOutputFile := TFileStream.Create(FFileName,fmCreate);
 {$IFDEF UNICODE}
    //write the byte order mark
@@ -305,7 +427,9 @@ var
   successRate : Integer;
   h, m, s, l :Word;
 begin
-   runtime := (GetTickCount - startTime) / 1000;
+   stopWatch.Stop();
+   runtime := stopWatch.ElapsedMilliseconds / 1000;
+
    if testResult.RunCount > 0 then
      successRate :=  Trunc(
         ((testResult.runCount - testResult.failureCount - testResult.errorCount)
@@ -337,8 +461,6 @@ begin
       writeln;
 
    end;
-
-
 end;
 
 class function TXMLTestListener.RunTest(suite: ITest; outputFile:String): TTestResult;
@@ -405,7 +527,7 @@ end;
 
 procedure TXMLTestListener.EndSuite(suite: ITest);
 begin
-     if CompareText(suite.Name, ExtractFileName(Application.ExeName)) = 0 then
+     if CompareText(suite.Name, ExtractFileName(ExeName)) = 0 then
        Exit;
      writeReport('</results>');
      writeReport('</test-suite>');
@@ -416,7 +538,7 @@ procedure TXMLTestListener.StartSuite(suite: ITest);
 var
   s : string;
 begin
-   if CompareText(suite.Name, ExtractFileName(Application.ExeName)) = 0 then
+   if CompareText(suite.Name, ExtractFileName(ExeName)) = 0 then
      Exit;
    s := GetCurrentSuiteName + suite.Name;
    writeReport(Format('<test-suite name="%s" total="%d" notrun="%d">', [s, suite.CountTestCases, suite.CountTestCases - suite.CountEnabledTestCases]));
