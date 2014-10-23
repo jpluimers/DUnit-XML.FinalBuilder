@@ -35,11 +35,13 @@
  Contributor : Laurent Laffont <llaffont@altaiire.fr>
 }
 
-{$if RTLVersion >= 21.0}
-  {$define HasStopwatch} // Delphi 2010 and up has a cross platform TStopwatch.
-  // http://docs.embarcadero.com/products/rad_studio/delphiAndcpp2009/HelpUpdate2/EN/html/delphivclwin32/contents.html
-  // http://docwiki.embarcadero.com/VCL/2010/en/Diagnostics.TStopwatch
-{$ifend}
+{$ifdef ConditionalExpressions} // Delphi 6 and up
+  {$if RTLVersion >= 21.0}
+    {$define HasStopwatch} // Delphi 2010 and up has a cross platform TStopwatch.
+    // http://docs.embarcadero.com/products/rad_studio/delphiAndcpp2009/HelpUpdate2/EN/html/delphivclwin32/contents.html
+    // http://docwiki.embarcadero.com/VCL/2010/en/Diagnostics.TStopwatch
+  {$ifend}
+{$endif}
 
 unit FinalBuilder.XMLTestRunner;
 
